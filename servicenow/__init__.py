@@ -15,14 +15,11 @@ class DecodeError(Exception):
 class HTTPError(Exception):
     def __init__(self, url, code, msg):
         self.url = url
-        self.code = code
+        self.code = code if isinstance(code, int) else -1
         self.message = msg
 
     def __str__(self):
-        if self.code is not None:
-            return 'HTTP Error %s: %s' % (self.code, self.message)
-        else:
-            return 'HTTP Error: %s' % (self.code, self.message)
+        return 'HTTP Error %s: %s' % (self.code, self.message)
 
 
 class ServiceNow(object):
