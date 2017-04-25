@@ -19,7 +19,10 @@ class HTTPError(Exception):
         self.message = msg
 
     def __str__(self):
-        return 'HTTP Error %s: %s' % (self.code, self.message)
+        if self.code is not None:
+            return 'HTTP Error %s: %s' % (self.code, self.message)
+        else:
+            return 'HTTP Error: %s' % (self.code, self.message)
 
 
 class ServiceNow(object):
@@ -59,8 +62,10 @@ class ServiceNow(object):
         result = response = None
         try:
             response = self._opener.open(request)
-        except (urllib2.HTTPError, urllib2.URLError) as e:
+        except urllib2.HTTPError as e:
             raise HTTPError(request.get_full_url(), e.code, e.msg)
+        except urllib2.URLError as e:
+            raise HTTPError(request.get_full_url(), None, e.reason)
         if response.getcode() not in status_codes:
             return {'error': {
                 'code': response.getcode(),
