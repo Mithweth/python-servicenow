@@ -59,7 +59,7 @@ class ServiceNow(object):
         result = response = None
         try:
             response = self._opener.open(request)
-        except urllib2.HTTPError as e:
+        except (urllib2.HTTPError, urllib2.URLError) as e:
             raise HTTPError(request.get_full_url(), e.code, e.msg)
         if response.getcode() not in status_codes:
             return {'error': {
