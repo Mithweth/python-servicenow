@@ -1,5 +1,9 @@
 # coding: utf8
-import urllib2
+import sys
+if sys.version_info >= (3, 0):
+    import urllib.request as urllib2
+else:
+    import urllib2
 import json
 
 
@@ -44,31 +48,43 @@ class ServiceNow(object):
         url = "%s/%s" % (self.url, path)
         options = [
             'sysparm_%s=%s' % (k, v)
-            for k, v in kwargs.iteritems()
+            for k, v in kwargs.items()
             if v is not None
         ]
         if options:
             url += '&' if url.find('?') > -1 else '?'
             url += "&".join(options)
         request = urllib2.Request(url)
-        request.get_method = lambda: method
+        if sys.version_info >= (3, 3):
+            request.method = method
+        else:
+            request.get_method = lambda: method
         request.add_header("Content-Type", "application/json")
         request.add_header("Accept", "application/json")
         if params:
-            request.add_data(json.dumps(params))
+            if sys.version_info >= (3, 4):
+                request.data = json.dumps(params).encode('utf-8')
+            else:
+                request.add_data(json.dumps(params))
         result = response = None
         try:
             response = self._opener.open(request)
         except urllib2.HTTPError as e:
-            raise HTTPError(request.get_full_url(), e.code, e.msg)
+            if sys.version_info >= (3, 4):
+                raise HTTPError(request.full_url, e.code, e.msg)
+            else:
+                raise HTTPError(request.get_full_url(), e.code, e.msg)
         except urllib2.URLError as e:
-            raise HTTPError(request.get_full_url(), None, e.reason)
+            if sys.version_info >= (3, 4):
+                raise HTTPError(request.full_url, None, e.reason)
+            else:
+                raise HTTPError(request.get_full_url(), None, e.reason)
         if response.getcode() not in status_codes:
             return {'error': {
                 'code': response.getcode(),
                 'message': response.msg
             }}
-        response_data = response.read()
+        response_data = response.read().decode('utf-8', 'ignore')
         if len(response_data) == 0:
             return None
         try:
