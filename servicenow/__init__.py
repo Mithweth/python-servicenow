@@ -109,7 +109,7 @@ class ServiceNow(object):
         Keywords arguments corresponds to ServiceNow parameters:
          - order
          - order_direction
-         - force_row_count
+         - fields
          - display_value
          - exclude_reference_link
          - offset
@@ -122,22 +122,38 @@ class ServiceNow(object):
             **kwargs
         )
 
-    def put(self, path, params):
-        """Update an existing ServiceNow records"""
+    def put(self, path, params, **kwargs):
+        """Update an existing ServiceNow records
+
+        Keywords arguments corresponds to ServiceNow parameters:
+         - input_display_value
+         - fields
+         - display_value
+         - exclude_reference_link
+        """
         return self._call(
             'PUT',
             path,
             params=params,
-            status_codes=(200, 204)
+            status_codes=(200, 204),
+            **kwargs
         )
 
-    def post(self, path, params):
-        """Create a new ServiceNow record"""
+    def post(self, path, params, **kwargs):
+        """Create a new ServiceNow record
+
+        Keywords arguments corresponds to ServiceNow parameters:
+         - input_display_value
+         - fields
+         - display_value
+         - exclude_reference_link
+        """
         return self._call(
             'POST',
             path,
             params=params,
-            status_codes=(201, 204)
+            status_codes=(201, 204),
+            **kwargs
         )
 
     def delete(self, path):
