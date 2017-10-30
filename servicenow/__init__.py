@@ -45,7 +45,10 @@ class ServiceNow(object):
 
     def _call(self, method, path, params=None,
               status_codes=(200, 201, 204), **kwargs):
-        url = "%s/%s" % (self.url, path)
+        if '/' not in path:
+            url = "%s/api/now/table/%s" % (self.url, path)
+        else:
+            url = "%s/%s" % (self.url, path)
         options = [
             'sysparm_%s=%s' % (k, v)
             for k, v in kwargs.items()
