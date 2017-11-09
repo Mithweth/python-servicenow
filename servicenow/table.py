@@ -83,6 +83,8 @@ class Table(object):
     def search(self, *filters):
         query = []
         for f in filters:
+            if f == '':
+                continue
             if '!=' in f:
                 g = re.search('(.*)(!=)(.*)', f)
             elif 'LIKE' in f:
