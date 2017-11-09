@@ -72,6 +72,8 @@ class Table(object):
             res = self.snow.get(self.table,
                                 offset=offset, limit=2)
             if len(res) == 0:
+                if offset == 0:
+                    return 0
                 max = offset
             else:
                 min = offset
