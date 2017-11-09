@@ -9,7 +9,7 @@ import mock
 import urllib2
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import servicenow # noqa
+import servicenow  # noqa
 
 
 class TestCaseServicenow(unittest.TestCase):
@@ -313,3 +313,51 @@ class TestCaseServicenow(unittest.TestCase):
             snow = servicenow.ServiceNow("url", "user", "pass")
             with self.assertRaises(servicenow.HTTPError):
                 snow.delete("api/now/table/sc_task/1")
+
+    def test_display_field(self):
+        def fake_open(request):
+            mock_req = mock.Mock()
+            mock_req.getcode.return_value = 200
+            if 'sys_db_object' in request.get_full_url():
+                if 'name=' in request.get_full_url():
+                    mock_req.read.return_value = '[{"super_class":"123"}]'
+                else:
+                    mock_req.read.return_value = '[{"name":"cmdb"}]'
+            if 'sys_dictionary' in request.get_full_url():
+                if 'cmdb&' in request.get_full_url():
+                    mock_req.read.return_value = '[{"element":"name"}]'
+                else:
+                    mock_req.read.return_value = '[]'
+            return mock_req
+
+        m = mock.Mock()
+        m.return_value.open.side_effect = fake_open
+        with mock.patch('urllib2.OpenerDirector', m, create=True):
+            snow = servicenow.ServiceNow("url", "user", "pass")
+            self.assertEqual(snow._display_field('toto'), 'name')
+
+    def test_display_field_wo_heritance(self):
+        def fake_open(request):
+            mock_req = mock.Mock()
+            mock_req.getcode.return_value = 200
+            if 'sys_db_object' in request.get_full_url():
+                mock_req.read.return_value = '[{"super_class":""}]'
+            if 'sys_dictionary' in request.get_full_url():
+                mock_req.read.return_value = '[]'
+            return mock_req
+
+        m = mock.Mock()
+        m.return_value.open.side_effect = fake_open
+        with mock.patch('urllib2.OpenerDirector', m, create=True):
+            snow = servicenow.ServiceNow("url", "user", "pass")
+            with self.assertRaises(KeyError):
+                snow._display_field('toto')
+
+    def test_sysid_to_value_no_heritance(self):
+        m = mock.Mock()
+        m.return_value.getcode.return_value = 200
+        m.return_value.read.return_value = '[{"super_class":""}]'
+        with mock.patch('urllib2.OpenerDirector.open', m, create=True):
+            snow = servicenow.ServiceNow("url", "user", "pass")
+            with self.assertRaises(servicenow.ReferenceNotFound):
+                snow.sysid_to_value("table", "value")

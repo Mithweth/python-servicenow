@@ -1,10 +1,11 @@
 # coding: utf8
 import sys
+import json
+
 if sys.version_info >= (3, 0):
     import urllib.request as urllib2
 else:
     import urllib2
-import json
 
 
 class DecodeError(Exception):
@@ -26,6 +27,15 @@ class HTTPError(Exception):
         return 'HTTP Error %s: %s' % (self.code, self.message)
 
 
+class ReferenceNotFound(Exception):
+    def __init__(self, value, table):
+        self.value = value
+        self.table = table
+
+    def __str__(self):
+        return '%s in %s' % (self.value, self.table)
+
+
 class ServiceNow(object):
     """Handles and requests ServiceNow instance"""
     def __init__(self, url, username, password,
@@ -45,7 +55,10 @@ class ServiceNow(object):
 
     def _call(self, method, path, params=None,
               status_codes=(200, 201, 204), **kwargs):
-        url = "%s/%s" % (self.url, path)
+        if len(path.split('/')) < 3:
+            url = "%s/api/now/table/%s" % (self.url, path)
+        else:
+            url = "%s/%s" % (self.url, path)
         options = [
             'sysparm_%s=%s' % (k, v)
             for k, v in kwargs.items()
@@ -95,6 +108,23 @@ class ServiceNow(object):
             result = result['result']
         return result
 
+    def _display_field(self, table):
+        """Returns the displayed field of any tables
+
+        Needs read-only rights (or greater) on sys_dictionary and
+        sys_db_object tables
+        """
+        sd = self.get('sys_dictionary?name=%s&display=true' % table)
+        if len(sd) > 0:
+            return sd[0]['element']
+        obj = self.get('sys_db_object?name=%s' % table,
+                       exclude_reference_link=True)
+        if len(obj[0]['super_class']) == 0:
+            raise KeyError('super_class')
+        superclass = self.get('sys_db_object?sys_id=%s' %
+                              obj[0]['super_class'])
+        return self._display_field(superclass[0]['name'])
+
     def tables(self):
         """List all available tables"""
         tables = self._call(
@@ -109,41 +139,79 @@ class ServiceNow(object):
         Keywords arguments corresponds to ServiceNow parameters:
          - order
          - order_direction
-         - force_row_count
+         - fields
          - display_value
          - exclude_reference_link
          - offset
          - limit
         """
-        return self._call(
-            'GET',
-            path,
-            status_codes=(200,),
-            **kwargs
-        )
+        return self._call('GET',
+                          path,
+                          status_codes=(200,),
+                          **kwargs)
 
-    def put(self, path, params):
-        """Update an existing ServiceNow records"""
-        return self._call(
-            'PUT',
-            path,
-            params=params,
-            status_codes=(200, 204)
-        )
+    def put(self, path, params, **kwargs):
+        """Update an existing ServiceNow records
 
-    def post(self, path, params):
-        """Create a new ServiceNow record"""
-        return self._call(
-            'POST',
-            path,
-            params=params,
-            status_codes=(201, 204)
-        )
+        Keywords arguments corresponds to ServiceNow parameters:
+         - input_display_value
+         - fields
+         - display_value
+         - exclude_reference_link
+        """
+        return self._call('PUT',
+                          path,
+                          params=params,
+                          status_codes=(200, 204),
+                          **kwargs)
+
+    def post(self, path, params, **kwargs):
+        """Create a new ServiceNow record
+
+        Keywords arguments corresponds to ServiceNow parameters:
+         - input_display_value
+         - fields
+         - display_value
+         - exclude_reference_link
+        """
+        return self._call('POST',
+                          path,
+                          params=params,
+                          status_codes=(201, 204),
+                          **kwargs)
 
     def delete(self, path):
         """Delete an existing ServiceNow record"""
-        return self._call(
-            'DELETE',
-            path,
-            status_codes=(200, 202, 204)
-        )
+        return self._call('DELETE',
+                          path,
+                          status_codes=(200, 202, 204))
+
+    def sysid_to_value(self, table, sysid):
+        """Retrieve the display value from a Sys ID
+
+        Needs read-only rights (or greater) on sys_dictionary and
+        sys_db_object tables
+        """
+        try:
+            field = self._display_field(table)
+        except KeyError:
+            raise ReferenceNotFound(sysid, table)
+        search = self.get("%s/%s" % (table, sysid))
+        if len(search) == 0:
+            raise ReferenceNotFound(sysid, table)
+        return search[field]
+
+    def value_to_sysid(self, table, value):
+        """Retrieve the Sys ID from a given display value
+
+        Needs read-only rights (or greater) on sys_dictionary and
+        sys_db_object tables
+        """
+        try:
+            field = self._display_field(table)
+        except KeyError:
+            raise ReferenceNotFound(value, table)
+        search = self.get("%s?%s=%s" % (table, field, value))
+        if len(search) == 0:
+            raise ReferenceNotFound(value, table)
+        return search[0]['sys_id']
