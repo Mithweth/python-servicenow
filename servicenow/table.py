@@ -1,10 +1,14 @@
 # coding: utf8
 import re
-import urllib
-import servicenow
+import sys
+import byg_servicenow
+if sys.version_info >= (3, 0):
+    import urllib.parse as compat_parse
+else:
+    import urllib as compat_parse
 
 
-class ServiceNow(servicenow.ServiceNow):
+class ServiceNow(byg_servicenow.ServiceNow):
     """Handles and requests ServiceNow instance"""
     def __init__(self, url, username, password,
                  http_proxy=None, https_proxy=None):
@@ -48,6 +52,9 @@ class Table(object):
         self.table = table
         self.display_value = False
 
+    def __repr__(self):
+        return 'Table(%s)' % self.table
+
     def __getitem__(self, index):
         if index < 0:
             return None
@@ -72,17 +79,33 @@ class Table(object):
             res = self.snow.get(self.table,
                                 offset=offset, limit=2)
             if len(res) == 0:
+                if offset == 0:
+                    return 0
                 max = offset
             else:
                 min = offset
         return offset + 1
 
-    def delete(self, sys_id):
-        return self.snow.delete("%s/%s" % (self.table, sys_id))
+    def __delitem__(self, index):
+        self.remove(self[index])
+
+    def remove(self, item):
+        self.snow.delete("%s/%s" % (self.table, item['sys_id']))
+
+    def insert(self, data):
+        params = {}
+        row = self.TableRow(self, data)
+        for field in row:
+            if field != 'sys_id':
+                params[field] = row[field]
+        self.snow.post(self.table, params)
+        return row
 
     def search(self, *filters):
         query = []
         for f in filters:
+            if f == '':
+                continue
             if '!=' in f:
                 g = re.search('(.*)(!=)(.*)', f)
             elif 'LIKE' in f:
@@ -103,15 +126,23 @@ class Table(object):
             query.append("%s%s%s" % (g.group(1), g.group(2), v))
         params = {'sysparm_query': "^".join(query)}
         for row in self.snow.get("%s?%s" % (self.table,
-                                            urllib.urlencode(params)),
+                                            compat_parse.urlencode(params)),
                                  display_value=self.display_value):
-            yield self.TableRow(self.snow, row)
+            yield self.TableRow(self, row)
 
     class TableRow(object):
-        def __init__(self, snow, data):
+        def __init__(self, parent, data):
             self.__dict__ = dict(**data)
-            self.snow = snow
+            self.snow = parent.snow
+            self.table = parent.table
             self.__data = data
+
+        def __repr__(self):
+            try:
+                sysid = self.__data['sys_id']
+            except KeyError:
+                sysid = None
+            return 'TableRow(ID: %s, Table: %s)' % (sysid, self.table)
 
         def __eq__(self, data):
             for k in self.__data:
@@ -164,4 +195,9 @@ class Table(object):
                 self.__data[name]["link"].split('/')[-1])
 
         def __setitem__(self, name, value):
-            pass
+            params = {}
+            self.__data[name] = value
+            for k in self:
+                params[k] = self[k]
+            self.snow.put("%s/%s" % (self.table, self.__data['sys_id']),
+                          params)

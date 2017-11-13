@@ -3,9 +3,11 @@ import sys
 import json
 
 if sys.version_info >= (3, 0):
-    import urllib.request as urllib2
+    import urllib.request as compat_urllib
+    import urllib.parse as compat_parse
 else:
-    import urllib2
+    import urllib2 as compat_urllib
+    import urllib as compat_parse
 
 
 class DecodeError(Exception):
@@ -41,16 +43,16 @@ class ServiceNow(object):
     def __init__(self, url, username, password,
                  http_proxy=None, https_proxy=None):
         self.url = url
-        password_mgr = urllib2.HTTPPasswordMgrWithDefaultRealm()
+        password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
         self.proxies = {}
         if http_proxy:
             self.proxies['http'] = http_proxy
         if https_proxy:
             self.proxies['https'] = https_proxy
-        self._opener = urllib2.build_opener(
-            urllib2.HTTPBasicAuthHandler(password_mgr),
-            urllib2.ProxyHandler(self.proxies)
+        self._opener = compat_urllib.build_opener(
+            compat_urllib.HTTPBasicAuthHandler(password_mgr),
+            compat_urllib.ProxyHandler(self.proxies)
         )
 
     def _call(self, method, path, params=None,
@@ -67,7 +69,7 @@ class ServiceNow(object):
         if options:
             url += '&' if url.find('?') > -1 else '?'
             url += "&".join(options)
-        request = urllib2.Request(url)
+        request = compat_urllib.Request(url)
         if sys.version_info >= (3, 3):
             request.method = method
         else:
@@ -82,12 +84,12 @@ class ServiceNow(object):
         result = response = None
         try:
             response = self._opener.open(request)
-        except urllib2.HTTPError as e:
+        except compat_urllib.HTTPError as e:
             if sys.version_info >= (3, 4):
                 raise HTTPError(request.full_url, e.code, e.msg)
             else:
                 raise HTTPError(request.get_full_url(), e.code, e.msg)
-        except urllib2.URLError as e:
+        except compat_urllib.URLError as e:
             if sys.version_info >= (3, 4):
                 raise HTTPError(request.full_url, None, e.reason)
             else:
@@ -211,7 +213,8 @@ class ServiceNow(object):
             field = self._display_field(table)
         except KeyError:
             raise ReferenceNotFound(value, table)
-        search = self.get("%s?%s=%s" % (table, field, value))
+        search = self.get("%s?%s=%s" % (table, field,
+                                        compat_parse.quote(value)))
         if len(search) == 0:
             raise ReferenceNotFound(value, table)
         return search[0]['sys_id']
