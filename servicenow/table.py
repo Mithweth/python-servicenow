@@ -1,14 +1,14 @@
 # coding: utf8
 import re
 import sys
-import byg_servicenow
+import servicenow
 if sys.version_info >= (3, 0):
     import urllib.parse as compat_parse
 else:
     import urllib as compat_parse
 
 
-class ServiceNow(byg_servicenow.ServiceNow):
+class ServiceNow(servicenow.ServiceNow):
     """Handles and requests ServiceNow instance"""
     def __init__(self, url, username, password,
                  http_proxy=None, https_proxy=None):
