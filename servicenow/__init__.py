@@ -40,19 +40,17 @@ class ReferenceNotFound(Exception):
 
 class ServiceNow(object):
     """Handles and requests ServiceNow instance"""
-    def __init__(self, url, username, password,
-                 http_proxy=None, https_proxy=None):
+    def __init__(self, url, username, password, proxy=None):
         self.url = url
         password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
-        self.proxies = {}
-        if http_proxy:
-            self.proxies['http'] = http_proxy
-        if https_proxy:
-            self.proxies['https'] = https_proxy
+        if proxy:
+            proxies = {'http': proxy, 'https': proxy}
+        else:
+            proxies = {}
         self._opener = compat_urllib.build_opener(
             compat_urllib.HTTPBasicAuthHandler(password_mgr),
-            compat_urllib.ProxyHandler(self.proxies)
+            compat_urllib.ProxyHandler(proxies)
         )
 
     def _call(self, method, path, params=None,

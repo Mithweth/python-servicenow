@@ -1,19 +1,17 @@
 # coding: utf8
 import re
 import sys
-import servicenow
+import byg_servicenow
 if sys.version_info >= (3, 0):
     import urllib.parse as compat_parse
 else:
     import urllib as compat_parse
 
 
-class ServiceNow(servicenow.ServiceNow):
+class ServiceNow(byg_servicenow.ServiceNow):
     """Handles and requests ServiceNow instance"""
-    def __init__(self, url, username, password,
-                 http_proxy=None, https_proxy=None):
-        super(self.__class__, self).__init__(url, username, password,
-                                             http_proxy, https_proxy)
+    def __init__(self, url, username, password, proxy=None):
+        super(ServiceNow, self).__init__(url, username, password, proxy)
         self._cache = {}
 
     def sysid_to_value(self, table, sysid):
@@ -24,7 +22,7 @@ class ServiceNow(servicenow.ServiceNow):
         """
         key = table + '.' + sysid
         if key not in self._cache:
-            self._cache[key] = super(self.__class__,
+            self._cache[key] = super(ServiceNow,
                                      self).sysid_to_value(table,
                                                           sysid)
         return self._cache[key]
@@ -37,7 +35,7 @@ class ServiceNow(servicenow.ServiceNow):
         """
         key = table + '.' + value
         if key not in self._cache:
-            self._cache[key] = super(self.__class__,
+            self._cache[key] = super(ServiceNow,
                                      self).value_to_sysid(table,
                                                           value)
         return self._cache[key]
@@ -117,12 +115,15 @@ class Table(object):
             v = g.group(3)
             first = self[0]
             if len(first) == 0:
-                yield []
+                raise StopIteration
             if g.group(1) not in first:
                 raise KeyError(g.group(1))
             if isinstance(first.__dict__[g.group(1)], dict):
-                v = self.snow.value_to_sysid(
-                    first.__dict__[g.group(1)]['link'].split('/')[-2], v)
+                try:
+                    v = self.snow.value_to_sysid(
+                        first.__dict__[g.group(1)]['link'].split('/')[-2], v)
+                except byg_servicenow.ReferenceNotFound:
+                    raise StopIteration
             query.append("%s%s%s" % (g.group(1), g.group(2), v))
         params = {'sysparm_query': "^".join(query)}
         for row in self.snow.get("%s?%s" % (self.table,
