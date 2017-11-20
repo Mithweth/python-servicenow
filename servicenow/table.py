@@ -88,7 +88,7 @@ class Table(object):
         self.remove(self[index])
 
     def remove(self, item):
-        self.snow.delete("%s/%s" % (self.table, item['sys_id']))
+        return self.snow.delete("%s/%s" % (self.table, item['sys_id']))
 
     def insert(self, data):
         params = {}
@@ -96,8 +96,7 @@ class Table(object):
         for field in row:
             if field != 'sys_id':
                 params[field] = row[field]
-        self.snow.post(self.table, params)
-        return row
+        return self.snow.post(self.table, params)
 
     def search(self, *filters):
         query = []
