@@ -4,7 +4,7 @@
 
 import re
 import sys
-import byg_servicenow
+import servicenow
 if sys.version_info >= (3, 0):
     import urllib.parse as compat_parse
 else:
