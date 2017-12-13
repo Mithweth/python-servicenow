@@ -1,4 +1,7 @@
-# coding: utf8
+#!/usr/bin/env python
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+# -*- coding: utf-8 -*-
+
 import sys
 import json
 
@@ -97,13 +100,17 @@ class ServiceNow(object):
                 'code': response.getcode(),
                 'message': response.msg
             }}
-        response_data = response.read().decode('utf-8', 'ignore')
+        tmp = response.read()
+        if hasattr(tmp, "decode"):
+            response_data = tmp.decode('utf-8', 'ignore')
+        else:
+            response_data = tmp
         if len(response_data) == 0:
             return None
         try:
             result = json.loads(response_data)
         except ValueError as e:
-            raise DecodeError(response_data, e.message)
+            raise DecodeError(response_data, str(e))
         if 'result' in result:
             result = result['result']
         return result
@@ -120,10 +127,14 @@ class ServiceNow(object):
         obj = self.get('sys_db_object?name=%s' % table,
                        exclude_reference_link=True)
         if len(obj[0]['super_class']) == 0:
-            raise KeyError('super_class')
-        superclass = self.get('sys_db_object?sys_id=%s' %
-                              obj[0]['super_class'])
-        return self._display_field(superclass[0]['name'])
+            elem = self.get('sys_dictionary?name=%s&element=name' % table)
+            if len(elem) == 0:
+                raise KeyError('name')
+            return 'name'
+        else:
+            superclass = self.get('sys_db_object?sys_id=%s' %
+                                  obj[0]['super_class'])
+            return self._display_field(superclass[0]['name'])
 
     def tables(self):
         """List all available tables"""
@@ -216,3 +227,5 @@ class ServiceNow(object):
         if len(search) == 0:
             raise ReferenceNotFound(value, table)
         return search[0]['sys_id']
+
+API = ServiceNow

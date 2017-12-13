@@ -1,4 +1,7 @@
-# coding: utf8
+#!/usr/bin/env python
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+# -*- coding: utf-8 -*-
+
 import re
 import sys
 import byg_servicenow
@@ -88,7 +91,7 @@ class Table(object):
         self.remove(self[index])
 
     def remove(self, item):
-        self.snow.delete("%s/%s" % (self.table, item['sys_id']))
+        return self.snow.delete("%s/%s" % (self.table, item['sys_id']))
 
     def insert(self, data):
         params = {}
@@ -96,10 +99,9 @@ class Table(object):
         for field in row:
             if field != 'sys_id':
                 params[field] = row[field]
-        self.snow.post(self.table, params)
-        return row
+        return self.snow.post(self.table, params)
 
-    def search(self, *filters):
+    def search(self, *filters, **kwargs):
         query = []
         for f in filters:
             if f == '':
@@ -125,10 +127,12 @@ class Table(object):
                 except byg_servicenow.ReferenceNotFound:
                     raise StopIteration
             query.append("%s%s%s" % (g.group(1), g.group(2), v))
+        if 'display_value' not in kwargs:
+            kwargs['display_value'] = self.display_value
         params = {'sysparm_query': "^".join(query)}
         for row in self.snow.get("%s?%s" % (self.table,
                                             compat_parse.urlencode(params)),
-                                 display_value=self.display_value):
+                                 **kwargs):
             yield self.TableRow(self, row)
 
     class TableRow(object):
@@ -202,3 +206,6 @@ class Table(object):
                 params[k] = self[k]
             self.snow.put("%s/%s" % (self.table, self.__data['sys_id']),
                           params)
+
+
+API = ServiceNow
