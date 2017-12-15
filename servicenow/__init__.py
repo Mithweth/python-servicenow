@@ -4,12 +4,15 @@
 
 import sys
 import json
+import logging
 
 if sys.version_info >= (3, 0):
     import urllib.request as compat_urllib
+    import http.client as compat_httplib
     import urllib.parse as compat_parse
 else:
     import urllib2 as compat_urllib
+    import httplib as compat_httplib
     import urllib as compat_parse
 
 
@@ -45,6 +48,7 @@ class ServiceNow(object):
     """Handles and requests ServiceNow instance"""
     def __init__(self, url, username, password, proxy=None):
         self.url = url
+        self._logger = logging.getLogger('servicenow')
         password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
         if proxy:
@@ -70,6 +74,7 @@ class ServiceNow(object):
         if options:
             url += '&' if url.find('?') > -1 else '?'
             url += "&".join(options)
+        self._logger.info('%s %s', method.upper(), url)
         request = compat_urllib.Request(url)
         if sys.version_info >= (3, 3):
             request.method = method
@@ -82,6 +87,7 @@ class ServiceNow(object):
                 request.data = json.dumps(params).encode('utf-8')
             else:
                 request.add_data(json.dumps(params))
+            self._logger.debug('Body: %s', json.dumps(params))
         result = response = None
         try:
             response = self._opener.open(request)
@@ -90,17 +96,24 @@ class ServiceNow(object):
                 raise HTTPError(request.full_url, e.code, e.msg)
             else:
                 raise HTTPError(request.get_full_url(), e.code, e.msg)
+        except compat_httplib.BadStatusLine as e:
+            if sys.version_info >= (3, 4):
+                raise HTTPError(request.full_url, None, e.line)
+            else:
+                raise HTTPError(request.get_full_url(), None, e.line)
         except compat_urllib.URLError as e:
             if sys.version_info >= (3, 4):
                 raise HTTPError(request.full_url, None, e.reason)
             else:
                 raise HTTPError(request.get_full_url(), None, e.reason)
+        self._logger.debug('Status Code: %d', response.getcode())
         if response.getcode() not in status_codes:
             return {'error': {
                 'code': response.getcode(),
                 'message': response.msg
             }}
         tmp = response.read()
+        self._logger.debug('Response: %s', tmp)
         if hasattr(tmp, "decode"):
             response_data = tmp.decode('utf-8', 'ignore')
         else:
@@ -210,6 +223,7 @@ class ServiceNow(object):
         search = self.get("%s/%s" % (table, sysid))
         if len(search) == 0:
             raise ReferenceNotFound(sysid, table)
+        self._logger.debug('%s(%s) = %s', table, sysid, search[field])
         return search[field]
 
     def value_to_sysid(self, table, value):
@@ -226,6 +240,8 @@ class ServiceNow(object):
                                         compat_parse.quote(value)))
         if len(search) == 0:
             raise ReferenceNotFound(value, table)
+        self._logger.debug('%s(%s) = %s', table, value, search[0]['sys_id'])
         return search[0]['sys_id']
+
 
 API = ServiceNow
