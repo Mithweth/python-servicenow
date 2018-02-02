@@ -52,13 +52,12 @@ class ServiceNow(object):
         password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
         if proxy:
-            proxies = {'http': proxy, 'https': proxy}
+            self._opener = compat_urllib.build_opener(
+                compat_urllib.HTTPBasicAuthHandler(password_mgr),
+                compat_urllib.ProxyHandler({'http': proxy, 'https': proxy}))
         else:
-            proxies = {}
-        self._opener = compat_urllib.build_opener(
-            compat_urllib.HTTPBasicAuthHandler(password_mgr),
-            compat_urllib.ProxyHandler(proxies)
-        )
+            self._opener = compat_urllib.build_opener(
+                compat_urllib.HTTPBasicAuthHandler(password_mgr))
 
     def _call(self, method, path, params=None,
               status_codes=(200, 201, 204), **kwargs):
