@@ -26,10 +26,11 @@ class DecodeError(Exception):
 
 
 class HTTPError(Exception):
-    def __init__(self, url, code, msg):
+    def __init__(self, url, code, msg, content=None):
         self.url = url
         self.code = code if isinstance(code, int) else -1
         self.message = msg
+        self.content = content
 
     def __str__(self):
         return 'HTTP Error %s: %s' % (self.code, self.message)
@@ -92,9 +93,10 @@ class ServiceNow(object):
             response = self._opener.open(request)
         except compat_urllib.HTTPError as e:
             if sys.version_info >= (3, 4):
-                raise HTTPError(request.full_url, e.code, e.msg)
+                raise HTTPError(request.full_url, e.code, e.msg, e.read())
             else:
-                raise HTTPError(request.get_full_url(), e.code, e.msg)
+                raise HTTPError(request.get_full_url(),
+                                e.code, e.msg, e.read())
         except compat_httplib.BadStatusLine as e:
             if sys.version_info >= (3, 4):
                 raise HTTPError(request.full_url, None, e.line)
