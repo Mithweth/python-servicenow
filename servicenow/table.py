@@ -106,12 +106,10 @@ class Table(object):
         for f in filters:
             if f == '':
                 continue
-            if '!=' in f:
-                g = re.search('(.*)(!=)(.*)', f)
-            elif 'LIKE' in f:
-                g = re.search('(.*)(LIKE)(.*)', f)
-            elif '=' in f:
-                g = re.search('(.*)(=)(.*)', f)
+            for op in ('!=', '=', 'LIKE', '<', '>'):
+                if op in f:
+                    g = re.search('(.*)({})(.*)'.format(op), f)
+                    break
             else:
                 raise AttributeError('operator not implemented')
             v = g.group(3)
