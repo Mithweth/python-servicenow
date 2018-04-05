@@ -8,10 +8,14 @@ import logging
 
 if sys.version_info >= (3, 0):
     import urllib.request as compat_urllib
+    from urllib.error import HTTPError as compat_httperror
+    from urllib.error import URLError as compat_urlerror
     import http.client as compat_httplib
     import urllib.parse as compat_parse
 else:
     import urllib2 as compat_urllib
+    from urllib2 import HTTPError as compat_httperror
+    from urllib2 import URLError as compat_urlerror
     import httplib as compat_httplib
     import urllib as compat_parse
 
@@ -91,18 +95,22 @@ class ServiceNow(object):
         result = response = None
         try:
             response = self._opener.open(request)
-        except compat_urllib.HTTPError as e:
+        except compat_httperror as e:
+            try:
+                content = e.read()
+            except:
+                content = None
             if sys.version_info >= (3, 4):
-                raise HTTPError(request.full_url, e.code, e.msg, e.read())
+                raise HTTPError(request.full_url, e.code, e.msg, content)
             else:
                 raise HTTPError(request.get_full_url(),
-                                e.code, e.msg, e.read())
+                                e.code, e.msg, content)
         except compat_httplib.BadStatusLine as e:
             if sys.version_info >= (3, 4):
                 raise HTTPError(request.full_url, None, e.line)
             else:
                 raise HTTPError(request.get_full_url(), None, e.line)
-        except compat_urllib.URLError as e:
+        except compat_urlerror as e:
             if sys.version_info >= (3, 4):
                 raise HTTPError(request.full_url, None, e.reason)
             else:

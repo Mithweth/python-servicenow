@@ -11,7 +11,7 @@ else:
     import urllib as compat_parse
 
 
-class ServiceNow(byg_servicenow.ServiceNow):
+class ServiceNow(servicenow.ServiceNow):
     """Handles and requests ServiceNow instance"""
     def __init__(self, url, username, password, proxy=None):
         super(ServiceNow, self).__init__(url, username, password, proxy)
@@ -122,7 +122,7 @@ class Table(object):
                 try:
                     v = self.snow.value_to_sysid(
                         first.__dict__[g.group(1)]['link'].split('/')[-2], v)
-                except byg_servicenow.ReferenceNotFound:
+                except servicenow.ReferenceNotFound:
                     raise StopIteration
             query.append("%s%s%s" % (g.group(1), g.group(2), v))
         if 'display_value' not in kwargs:
