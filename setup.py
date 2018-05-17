@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name="python-servicenow",
-    version="0.1.0",
+    version="0.1.2",
     description="ServiceNow module for Python",
     author="Jean-Baptiste LANGLOIS",
     author_email="jeanbaptiste.langlois@gmail.com",

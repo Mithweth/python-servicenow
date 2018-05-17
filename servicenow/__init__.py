@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 # -*- coding: utf-8 -*-
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import sys
 import json
@@ -64,20 +64,8 @@ class ServiceNow(object):
             self._opener = compat_urllib.build_opener(
                 compat_urllib.HTTPBasicAuthHandler(password_mgr))
 
-    def _call(self, method, path, params=None,
-              status_codes=(200, 201, 204), **kwargs):
-        if len(path.split('/')) < 3:
-            url = "%s/api/now/table/%s" % (self.url, path)
-        else:
-            url = "%s/%s" % (self.url, path)
-        options = [
-            'sysparm_%s=%s' % (k, v)
-            for k, v in kwargs.items()
-            if v is not None
-        ]
-        if options:
-            url += '&' if url.find('?') > -1 else '?'
-            url += "&".join(options)
+    def _call(self, method, url, params=None,
+              status_codes=(200, 201, 204)):
         self._logger.info('%s %s', method.upper(), url)
         request = compat_urllib.Request(url)
         if sys.version_info >= (3, 3):
@@ -135,7 +123,24 @@ class ServiceNow(object):
             raise DecodeError(response_data, str(e))
         if 'result' in result:
             result = result['result']
+        if 'records' in result:
+            result = result['records']
         return result
+
+    def _url_rewrite(self, path, **kwargs):
+        if len(path.split('/')) < 3:
+            url = "%s/api/now/table/%s" % (self.url, path)
+        else:
+            url = "%s/%s" % (self.url, path)
+        options = [
+            'sysparm_%s=%s' % (k, v)
+            for k, v in kwargs.items()
+            if v is not None
+        ]
+        if options:
+            url += '&' if url.find('?') > -1 else '?'
+            url += "&".join(options)
+        return url
 
     def _display_field(self, table):
         """Returns the displayed field of any tables
@@ -179,9 +184,8 @@ class ServiceNow(object):
          - limit
         """
         return self._call('GET',
-                          path,
-                          status_codes=(200,),
-                          **kwargs)
+                          self._url_rewrite(path, **kwargs),
+                          status_codes=(200,))
 
     def put(self, path, params, **kwargs):
         """Update an existing ServiceNow records
@@ -193,10 +197,9 @@ class ServiceNow(object):
          - exclude_reference_link
         """
         return self._call('PUT',
-                          path,
+                          self._url_rewrite(path, **kwargs),
                           params=params,
-                          status_codes=(200, 204),
-                          **kwargs)
+                          status_codes=(200, 204))
 
     def post(self, path, params, **kwargs):
         """Create a new ServiceNow record
@@ -208,15 +211,14 @@ class ServiceNow(object):
          - exclude_reference_link
         """
         return self._call('POST',
-                          path,
+                          self._url_rewrite(path, **kwargs),
                           params=params,
-                          status_codes=(201, 204),
-                          **kwargs)
+                          status_codes=(201, 204))
 
     def delete(self, path):
         """Delete an existing ServiceNow record"""
         return self._call('DELETE',
-                          path,
+                          self._url_rewrite(path),
                           status_codes=(200, 202, 204))
 
     def sysid_to_value(self, table, sysid):
