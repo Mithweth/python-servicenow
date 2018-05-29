@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 # -*- coding: utf-8 -*-
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import re
 import sys
@@ -74,6 +74,14 @@ class Table(object):
     def __len__(self):
         min = 0
         max = 65536
+        res = self.snow.get(self.table,
+                            offset=max,
+                            limit=1)
+        while len(res) == 1:
+            (min, max) = (max, max * 2)
+            res = self.snow.get(self.table,
+                                offset=max,
+                                limit=1)
         res = []
         while len(res) != 1:
             offset = int((max + min) / 2)
@@ -111,7 +119,7 @@ class Table(object):
                     g = re.search('(.*)({})(.*)'.format(op), f)
                     break
             else:
-                raise AttributeError('operator not implemented')
+                raise NotImplementedError(f)
             v = g.group(3)
             first = self[0]
             if len(first) == 0:
@@ -127,10 +135,11 @@ class Table(object):
             query.append("%s%s%s" % (g.group(1), g.group(2), v))
         if 'display_value' not in kwargs:
             kwargs['display_value'] = self.display_value
-        params = {'sysparm_query': "^".join(query)}
-        for row in self.snow.get("%s?%s" % (self.table,
-                                            compat_parse.urlencode(params)),
-                                 **kwargs):
+        if len(query) > 0:
+            if "query" in kwargs:
+                raise Exception("can not pass filters and sysparm_query")
+            kwargs['query'] = "^".join(query)
+        for row in self.snow.get(self.table, **kwargs):
             yield self.TableRow(self, row)
 
     class TableRow(object):
