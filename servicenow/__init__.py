@@ -5,6 +5,7 @@
 import sys
 import json
 import logging
+import ssl
 
 if sys.version_info >= (3, 0):
     import urllib.request as compat_urllib
@@ -51,18 +52,25 @@ class ReferenceNotFound(Exception):
 
 class ServiceNow(object):
     """Handles and requests ServiceNow instance"""
-    def __init__(self, url, username, password, proxy=None):
+    def __init__(self, url, username, password, proxy=None, verify=True):
         self.url = url
         self._logger = logging.getLogger('servicenow')
         password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
-        if proxy:
-            self._opener = compat_urllib.build_opener(
-                compat_urllib.HTTPBasicAuthHandler(password_mgr),
-                compat_urllib.ProxyHandler({'http': proxy, 'https': proxy}))
-        else:
-            self._opener = compat_urllib.build_opener(
-                compat_urllib.HTTPBasicAuthHandler(password_mgr))
+        self._opener = compat_urllib.build_opener()
+        if verify is False:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            self._opener.add_handler(compat_urllib.HTTPSHandler(context=ctx))
+        self._opener.add_handler(
+            compat_urllib.HTTPBasicAuthHandler(password_mgr))
+        if proxy is not None:
+            self._opener.add_handler(compat_urllib.ProxyHandler(
+                {'http': proxy, 'https': proxy}))
+        self._opener.addheaders = [
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json")]
 
     def _call(self, method, url, params=None,
               status_codes=(200, 201, 204)):
@@ -72,8 +80,6 @@ class ServiceNow(object):
             request.method = method
         else:
             request.get_method = lambda: method
-        request.add_header("Content-Type", "application/json")
-        request.add_header("Accept", "application/json")
         if params:
             if sys.version_info >= (3, 4):
                 request.data = json.dumps(params).encode('utf-8')

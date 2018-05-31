@@ -13,8 +13,12 @@ else:
 
 class ServiceNow(servicenow.ServiceNow):
     """Handles and requests ServiceNow instance"""
-    def __init__(self, url, username, password, proxy=None):
-        super(ServiceNow, self).__init__(url, username, password, proxy)
+    def __init__(self, url, username, password, proxy=None, verify=True):
+        super(ServiceNow, self).__init__(url,
+                                         username,
+                                         password,
+                                         proxy,
+                                         verify)
         self._cache = {}
 
     def sysid_to_value(self, table, sysid):
@@ -114,7 +118,7 @@ class Table(object):
         for f in filters:
             if f == '':
                 continue
-            for op in ('!=', '=', 'LIKE', '<', '>'):
+            for op in ('!=', '=', 'LIKE', '<', '>', 'IN'):
                 if op in f:
                     g = re.search('(.*)({})(.*)'.format(op), f)
                     break

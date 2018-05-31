@@ -62,7 +62,7 @@ class TestCaseServicenowTable(unittest.TestCase):
             for p in params:
                 if p.startswith('sysparm_query'):
                     retval = []
-                    for s in p.split('=', 1)[1].split("%5E"):
+                    for s in p.split('=', 1)[1].split("^"):
                         retval.append({'data': s})
                     retval = str(retval).replace("'", "\"")
                     break
@@ -78,7 +78,7 @@ class TestCaseServicenowTable(unittest.TestCase):
             snow = ServiceNow("url", "user", "pass")
             for i in snow.Table('toto').search('name=toto', 'totoLIKEtata'):
                 self.assertIn("data", i)
-                self.assertIn(i['data'], ['name%3Dtoto', 'totoLIKEtata'])
+                self.assertIn(i['data'], ['name=toto', 'totoLIKEtata'])
 
     def test_search_wrong_field(self):
         def fake_open(request):
