@@ -68,9 +68,6 @@ class ServiceNow(object):
         if proxy is not None:
             self._opener.add_handler(compat_urllib.ProxyHandler(
                 {'http': proxy, 'https': proxy}))
-        self._opener.addheaders = [
-            ("Content-Type", "application/json"),
-            ("Accept", "application/json")]
 
     def _call(self, method, url, params=None,
               status_codes=(200, 201, 204)):
@@ -80,6 +77,8 @@ class ServiceNow(object):
             request.method = method
         else:
             request.get_method = lambda: method
+        request.add_header("Content-Type", "application/json")
+        request.add_header("Accept", "application/json")
         if params:
             if sys.version_info >= (3, 4):
                 request.data = json.dumps(params).encode('utf-8')
