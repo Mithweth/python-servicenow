@@ -57,17 +57,17 @@ class ServiceNow(object):
         self._logger = logging.getLogger('servicenow')
         password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
-        self._opener = compat_urllib.build_opener()
+        handlers = []
         if verify is False:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            self._opener.add_handler(compat_urllib.HTTPSHandler(context=ctx))
-        self._opener.add_handler(
-            compat_urllib.HTTPBasicAuthHandler(password_mgr))
+            handlers.append(compat_urllib.HTTPSHandler(context=ctx))
+        handlers.append(compat_urllib.HTTPBasicAuthHandler(password_mgr))
         if proxy is not None:
-            self._opener.add_handler(compat_urllib.ProxyHandler(
+            handlers.append(compat_urllib.ProxyHandler(
                 {'http': proxy, 'https': proxy}))
+        self._opener = compat_urllib.build_opener(*handlers)
 
     def _call(self, method, url, params=None,
               status_codes=(200, 201, 204)):
@@ -115,7 +115,11 @@ class ServiceNow(object):
                 'message': response.msg
             }}
         tmp = response.read()
-        self._logger.debug('Response: %s', tmp)
+        if len(tmp) > 1024:
+            self._logger.debug('Response: %s...', tmp[:1024])
+        else:
+            self._logger.debug('Response: %s', tmp)
+
         if hasattr(tmp, "decode"):
             response_data = tmp.decode('utf-8', 'ignore')
         else:
@@ -126,10 +130,9 @@ class ServiceNow(object):
             result = json.loads(response_data)
         except ValueError as e:
             raise DecodeError(response_data, str(e))
-        if 'result' in result:
-            result = result['result']
-        if 'records' in result:
-            result = result['records']
+        for field in ('result', 'records'):
+            if field in result:
+                result = result[field]
         return result
 
     def _url_rewrite(self, path, **kwargs):
