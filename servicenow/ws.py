@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
-import re
-import sys
 import servicenow
+
+try:
+    from urllib.parse import quote
+except ImportError:
+    from urllib import quote
 
 
 class ServiceNow(servicenow.ServiceNow):
@@ -18,38 +21,36 @@ class ServiceNow(servicenow.ServiceNow):
          - sys_id
         """
 
-        url = path + '.do?JSONv2&'
+        url = path + '.do?JSONv2'
         if 'display_value' in kwargs:
-            url += 'displayvalue=%s' % kwargs['display_value']
+            url += '&displayvalue={display_value}'.format(**kwargs)
             del kwargs['display_value']
         if 'display_variables' in kwargs:
-            url += 'displayvariables=%s' % kwargs['display_variables']
+            url += '&displayvariables={display_variables}'.format(**kwargs)
             del kwargs['display_variables']
-        options = [
-            'sysparm_%s=%s' % (k, v)
-            for k, v in kwargs.items()
-            if v is not None
-        ]
-        if options:
-            url += "&".join(options)
-        return "%s/%s" % (self.url, url)
+        opts = []
+        for k, v in sorted(kwargs.items()):
+            if v is not None:
+                try:
+                    opts.append('sysparm_{0}={1}'.format(k, quote(v)))
+                except (AttributeError, TypeError):
+                    opts.append('sysparm_{0}={1}'.format(k, v))
+        if len(opts) > 0:
+            url += "&{0}".format("&".join(opts))
+        return "{0}/{1}".format(self.url, url)
 
-    def get(self, path,
-            display_variables=False,
-            display_value=False, **kwargs):
+    def get(self, path, **kwargs):
         if len(path.split('/')) > 1:
             kwargs['sys_id'] = path.split('/')[-1]
             path = path.split('/')[0]
         path = self._url_rewrite(path, **kwargs)
-        path += "&displayvalue=%s" % display_value
-        path += "&displayvariables=%s" % display_variables
         return self._call('GET', path, status_codes=(200,))
 
     def put(self, path, params, **kwargs):
         if 'query' not in kwargs:
             if len(path.split('/')) < 2:
-                raise ValueError('no sys_id specified on %s' % path)
-            kwargs['query'] = 'sys_id=' + path.split('/')[1]
+                raise ValueError('no sys_id specified on {0}'.format(path))
+            kwargs['query'] = 'sys_id={0}'.format(path.split('/')[1])
             path = path.split('/')[0]
         return self._call('POST',
                           self._url_rewrite(path, action='update', **kwargs),
@@ -64,7 +65,7 @@ class ServiceNow(servicenow.ServiceNow):
 
     def delete(self, path):
         if len(path.split('/')) < 2:
-            raise ValueError('no sys_id specified on %s' % path)
+            raise ValueError('no sys_id specified on {0}'.format(path))
         sys_id = path.split('/')[-1]
         path = path.split('/')[0]
         return self._call('POST',

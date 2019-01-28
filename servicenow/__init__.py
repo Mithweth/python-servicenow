@@ -2,26 +2,26 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
-import sys
 import json
 import logging
 import ssl
 
-if sys.version_info >= (3, 0):
-    import urllib.request as compat_urllib
-    from urllib.error import HTTPError as compat_httperror
-    from urllib.error import URLError as compat_urlerror
-    import http.client as compat_httplib
-    import urllib.parse as compat_parse
-else:
-    import urllib2 as compat_urllib
-    from urllib2 import HTTPError as compat_httperror
-    from urllib2 import URLError as compat_urlerror
-    import httplib as compat_httplib
-    import urllib as compat_parse
+try:
+    from urllib.request import HTTPPasswordMgrWithDefaultRealm, HTTPSHandler
+    from urllib.request import HTTPBasicAuthHandler, ProxyHandler
+    from urllib.request import build_opener, Request
+    from urllib.error import HTTPError, URLError
+    from http.client import BadStatusLine
+    from urllib.parse import quote
+except ImportError:
+    from urllib2 import HTTPPasswordMgrWithDefaultRealm, HTTPSHandler
+    from urllib2 import HTTPBasicAuthHandler, ProxyHandler
+    from urllib2 import build_opener, Request, HTTPError, URLError
+    from httplib import BadStatusLine
+    from urllib import quote
 
 
-class DecodeError(Exception):
+class ServiceNowDecodeError(Exception):
     def __init__(self, body, message):
         self.message = message
         self.text = str(body)
@@ -30,7 +30,7 @@ class DecodeError(Exception):
         return self.message
 
 
-class HTTPError(Exception):
+class ServiceNowHttpError(Exception):
     def __init__(self, url, code, msg, content=None):
         self.url = url
         self.code = code if isinstance(code, int) else -1
@@ -38,16 +38,17 @@ class HTTPError(Exception):
         self.content = content
 
     def __str__(self):
-        return 'HTTP Error %s: %s' % (self.code, self.message)
+        return 'HTTP Error {0}: {1}, {2}'.format(
+            self.code, self.message, self.url)
 
 
-class ReferenceNotFound(Exception):
+class ServiceNowReferenceNotFound(Exception):
     def __init__(self, value, table):
         self.value = value
         self.table = table
 
     def __str__(self):
-        return '%s in %s' % (self.value, self.table)
+        return '{0} in {1}'.format(self.value, self.table)
 
 
 class ServiceNow(object):
@@ -55,59 +56,55 @@ class ServiceNow(object):
     def __init__(self, url, username, password, proxy=None, verify=True):
         self.url = url
         self._logger = logging.getLogger('servicenow')
-        password_mgr = compat_urllib.HTTPPasswordMgrWithDefaultRealm()
+        password_mgr = HTTPPasswordMgrWithDefaultRealm()
         password_mgr.add_password(None, self.url, username, password)
         handlers = []
         if verify is False:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            handlers.append(compat_urllib.HTTPSHandler(context=ctx))
-        handlers.append(compat_urllib.HTTPBasicAuthHandler(password_mgr))
+            handlers.append(HTTPSHandler(context=ctx))
+        handlers.append(HTTPBasicAuthHandler(password_mgr))
         if proxy is not None:
-            handlers.append(compat_urllib.ProxyHandler(
+            handlers.append(ProxyHandler(
                 {'http': proxy, 'https': proxy}))
-        self._opener = compat_urllib.build_opener(*handlers)
+        self._opener = build_opener(*handlers)
+        self.__admin = None
+
+    @property
+    def _admin(self):
+        if self.__admin is None:
+            res = self.get('sys_choice', fields='value', limit=1)
+            if len(res) == 0 or 'value' not in res[0]:
+                self.__admin = False
+            else:
+                self.__admin = True
+        return self.__admin   
 
     def _call(self, method, url, params=None,
               status_codes=(200, 201, 204)):
         self._logger.info('%s %s', method.upper(), url)
-        request = compat_urllib.Request(url)
-        if sys.version_info >= (3, 3):
-            request.method = method
-        else:
-            request.get_method = lambda: method
+        request = Request(url)
+        request.get_method = lambda: method
         request.add_header("Content-Type", "application/json")
         request.add_header("Accept", "application/json")
         if params:
-            if sys.version_info >= (3, 4):
-                request.data = json.dumps(params).encode('utf-8')
-            else:
-                request.add_data(json.dumps(params))
+            request.data = json.dumps(params).encode('utf-8')
             self._logger.debug('Body: %s', json.dumps(params))
         result = response = None
         try:
             response = self._opener.open(request)
-        except compat_httperror as e:
+        except HTTPError as e:
             try:
                 content = e.read()
             except:
                 content = None
-            if sys.version_info >= (3, 4):
-                raise HTTPError(request.full_url, e.code, e.msg, content)
-            else:
-                raise HTTPError(request.get_full_url(),
-                                e.code, e.msg, content)
-        except compat_httplib.BadStatusLine as e:
-            if sys.version_info >= (3, 4):
-                raise HTTPError(request.full_url, None, e.line)
-            else:
-                raise HTTPError(request.get_full_url(), None, e.line)
-        except compat_urlerror as e:
-            if sys.version_info >= (3, 4):
-                raise HTTPError(request.full_url, None, e.reason)
-            else:
-                raise HTTPError(request.get_full_url(), None, e.reason)
+            raise ServiceNowHttpError(request.get_full_url(), e.code,
+                                      e.msg, content)
+        except BadStatusLine as e:
+            raise ServiceNowHttpError(request.get_full_url(), None, e.line)
+        except URLError as e:
+            raise ServiceNowHttpError(request.get_full_url(), None, e.reason)
         self._logger.debug('Status Code: %d', response.getcode())
         if response.getcode() not in status_codes:
             return {'error': {
@@ -119,17 +116,16 @@ class ServiceNow(object):
             self._logger.debug('Response: %s...', tmp[:1024])
         else:
             self._logger.debug('Response: %s', tmp)
-
-        if hasattr(tmp, "decode"):
+        try:
             response_data = tmp.decode('utf-8', 'ignore')
-        else:
+        except AttributeError:
             response_data = tmp
         if len(response_data) == 0:
             return None
         try:
             result = json.loads(response_data)
         except ValueError as e:
-            raise DecodeError(response_data, str(e))
+            raise ServiceNowDecodeError(response_data, str(e))
         for field in ('result', 'records'):
             if field in result:
                 result = result[field]
@@ -137,17 +133,32 @@ class ServiceNow(object):
 
     def _url_rewrite(self, path, **kwargs):
         if len(path.split('/')) < 3:
-            url = "%s/api/now/table/%s" % (self.url, path)
+            url = "{0}/api/now/table/{1}".format(self.url, path)
         else:
-            url = "%s/%s" % (self.url, path)
-        options = [
-            'sysparm_%s=%s' % (k, v)
-            for k, v in kwargs.items()
-            if v is not None
-        ]
-        if options:
+            url = "{0}/{1}".format(self.url, path)
+        opts = []
+        if 'order' in kwargs:
+            query_suffix = 'ORDERBY'
+            if 'order_direction' in kwargs:
+                if kwargs['order_direction'].lower() not in ('asc', 'desc'):
+                    raise ValueError('order_directory must be asc or desc')
+                if kwargs['order_direction'].lower() == 'desc':
+                    query_suffix = 'ORDERBYDESC'
+                del kwargs['order_direction']
+            kwargs['query'] = '{0}^{1}'.format(
+                kwargs.get('query', ''),
+                '^'.join(['{0}{1}'.format(query_suffix, f)
+                          for f in kwargs['order'].split(',')]))
+            del kwargs['order']
+        for k, v in sorted(kwargs.items()):
+            if v is not None:
+                try:
+                    opts.append('sysparm_{0}={1}'.format(k, quote(v)))
+                except (AttributeError, TypeError):
+                    opts.append('sysparm_{0}={1}'.format(k, v))
+        if len(opts) > 0:
             url += '&' if url.find('?') > -1 else '?'
-            url += "&".join(options)
+            url += "&".join(opts)
         return url
 
     def _display_field(self, table):
@@ -156,26 +167,32 @@ class ServiceNow(object):
         Needs read-only rights (or greater) on sys_dictionary and
         sys_db_object tables
         """
-        sd = self.get('sys_dictionary?name=%s&display=true' % table)
+        sd = self.get('sys_dictionary',
+                      query='name={0}^display=true'.format(table),
+                      fields='element')
         if len(sd) > 0:
-            return sd[0]['element']
-        obj = self.get('sys_db_object?name=%s' % table,
-                       exclude_reference_link=True)
+            return sd[-1]['element']
+        obj = self.get('sys_db_object',
+                       query='name={0}'.format(table),
+                       exclude_reference_link=True,
+                       fields='super_class')
         if len(obj[0]['super_class']) == 0:
-            elem = self.get('sys_dictionary?name=%s&element=name' % table)
+            elem = self.get('sys_dictionary',
+                            query='name={0}^element=name'.format(table))
             if len(elem) == 0:
                 raise KeyError('name')
             return 'name'
         else:
-            superclass = self.get('sys_db_object?sys_id=%s' %
-                                  obj[0]['super_class'])
-            return self._display_field(superclass[0]['name'])
+            scl = self.get('sys_db_object',
+                           query='sys_id={super_class}'.format(**obj[0]),
+                           fields='name')
+            return self._display_field(scl[0]['name'])
 
     def tables(self):
         """List all available tables"""
         tables = self._call(
             'GET',
-            '/api/now/table/sys_db_object'
+            self._url_rewrite('/sys_db_object')
         )
         return [table['name'] for table in tables]
 
@@ -238,10 +255,10 @@ class ServiceNow(object):
         try:
             field = self._display_field(table)
         except KeyError:
-            raise ReferenceNotFound(sysid, table)
-        search = self.get("%s/%s" % (table, sysid))
+            raise ServiceNowReferenceNotFound(sysid, table)
+        search = self.get("{0}/{1}".format(table, sysid))
         if len(search) == 0:
-            raise ReferenceNotFound(sysid, table)
+            raise ServiceNowReferenceNotFound(sysid, table)
         self._logger.debug('%s(%s) = %s', table, sysid, search[field])
         return search[field]
 
@@ -254,11 +271,11 @@ class ServiceNow(object):
         try:
             field = self._display_field(table)
         except KeyError:
-            raise ReferenceNotFound(value, table)
-        search = self.get("%s?%s=%s" % (table, field,
-                                        compat_parse.quote(value)))
+            raise ServiceNowReferenceNotFound(value, table)
+        search = self.get("{0}".format(table),
+                          query="{0}={1}".format(field, quote(value)))
         if len(search) == 0:
-            raise ReferenceNotFound(value, table)
+            raise ServiceNowReferenceNotFound(value, table)
         self._logger.debug('%s(%s) = %s', table, value, search[0]['sys_id'])
         return search[0]['sys_id']
 

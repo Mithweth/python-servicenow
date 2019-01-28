@@ -2,13 +2,16 @@
 # -*- coding: utf-8 -*-
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
-import re
-import sys
 import servicenow
-if sys.version_info >= (3, 0):
-    import urllib.parse as compat_parse
-else:
-    import urllib as compat_parse
+import logging
+import re
+import time
+
+
+try:
+    text_type = str
+except ImportError:
+    text_type = unicode
 
 
 class ServiceNow(servicenow.ServiceNow):
@@ -55,25 +58,24 @@ class Table(object):
     def __init__(self, snow, table):
         self.snow = snow
         self.table = table
-        self.display_value = False
+        self._default_pagesize = 30
+        self.__logger = logging.getLogger('servicenow')
 
     def __repr__(self):
-        return 'Table(%s)' % self.table
+        return 'Table({0})'.format(self.table)
 
     def __getitem__(self, index):
         if index < 0:
             return None
         result = self.snow.get(self.table,
-                               display_value=self.display_value,
+                               display_value='all',
                                offset=index, limit=1)
         if len(result) == 0:
             return None
-        return self.TableRow(self, result[0])
+        return TableRow(self, result[0])
 
     def __iter__(self):
-        for row in self.snow.get(self.table,
-                                 display_value=self.display_value):
-            yield self.TableRow(self, row)
+        return iter(TableIterator(self.snow, self.table))
 
     def __len__(self):
         min = 0
@@ -103,120 +105,183 @@ class Table(object):
         self.remove(self[index])
 
     def remove(self, item):
-        return self.snow.delete("%s/%s" % (self.table, item['sys_id']))
+        if isinstance(item, dict):
+            return self.snow.delete("{0}/{sys_id}".format(self.table, **item))
+        else:
+            return self.snow.delete("{0}/{1}".format(self.table, item))
 
-    def insert(self, data):
+    def insert(self, data, **kwargs):
         params = {}
-        row = self.TableRow(self, data)
+        row = TableRow(self, data)
         for field in row:
             if field != 'sys_id':
                 params[field] = row[field]
-        return self.snow.post(self.table, params)
+        return self.snow.post(self.table, params, **kwargs)
 
-    def search(self, *filters, **kwargs):
-        query = []
+    def _prepare(self, *filters):
+        if len([f for f in filters if len(f) > 0]) == 0:
+            raise Exception('no filters found')
+        kw = []
         for f in filters:
             if f == '':
                 continue
-            for op in ('!=', '=', 'LIKE', '<', '>', 'IN'):
+            for op in ('!=', '=', 'LIKE', '<', '>', 'NOT%20IN',
+                       'NOT%20LIKE', 'IN', 'STARTSWITH', 'ENDSWITH'):
                 if op in f:
-                    g = re.search('(.*)({})(.*)'.format(op), f)
+                    kw.append(re.search('(.*)({0})(.*)'.format(op), f))
                     break
             else:
                 raise NotImplementedError(f)
-            v = g.group(3)
-            first = self[0]
-            if len(first) == 0:
-                raise StopIteration
-            if g.group(1) not in first:
-                raise KeyError(g.group(1))
-            if isinstance(first.__dict__[g.group(1)], dict):
-                try:
-                    v = self.snow.value_to_sysid(
-                        first.__dict__[g.group(1)]['link'].split('/')[-2], v)
-                except servicenow.ReferenceNotFound:
+        res = self.snow.get(self.table,
+                            fields=','.join([g.group(1) for g in kw]),
+                            limit=1)
+        first = TableRow(self, res[0])
+        query = []
+        for g in kw:
+            key, op, val = g.groups()
+            if key not in first:
+                raise KeyError(key)
+            if first[key].link is not None:
+                query.append(
+                    "{0}{1}{2}^OR{0}.name{1}{2}".format(key, op, val))
+                continue       
+            res = self.snow.get(self.table, query=g.string, limit=1)
+            choices = []
+            if len(res) == 0:
+                if self.snow._admin is True:
+                    choices = self.snow.get(
+                        'sys_choice',
+                        fields='value',
+                        query='name={0}^element={1}^label{2}{3}'.format(
+                            self.table, key, op, val))
+                else:
+                    vals = [i.strip() for i in val.split(',')]
+                    for row in self.filter(fields=key):
+                        if row[key].display_value in vals:
+                            choices.append({'value': row[key].value})
+                            vals.remove(row[key].display_value)
+                        if row[key].value in vals:
+                            choices.append({'value': row[key].value})
+                            vals.remove(row[key].value)
+                        if len(vals) == 0:
+                            break
+            if len(choices) > 0:
+                query.append("{0}IN{1}".format(
+                    key,
+                    ','.join([i['value'] for i in choices])))
+            else:
+                query.append(g.string)
+        return "^".join(query)
+
+    def search(self, *args):
+        return TableIterator(self.snow, self.table,
+                             query=self._prepare(*args))
+
+    def filter(self, **kwargs):
+        return TableIterator(self.snow, self.table, **kwargs)
+
+
+class TableIterator(object):
+    def __init__(self, snow, table, **opts):
+        self._default_pagesize = 30
+        self.snow = snow
+        self.table = table
+        self.opts = opts
+
+    def __iter__(self):
+        kwargs = dict(self.opts)
+        record_limit = kwargs.get('limit')
+        record = 0
+        kwargs['limit'] = self._default_pagesize
+        kwargs['offset'] = 0
+        kwargs['display_value'] = kwargs.get('display_value', 'all')
+        while True:
+            time_start = time.time()
+            results = self.snow.get(self.table, **kwargs)
+            time_elapsed = time.time() - time_start
+            for row in results:
+                if record_limit is not None and record == record_limit:
                     raise StopIteration
-            query.append("%s%s%s" % (g.group(1), g.group(2), v))
-        if 'display_value' not in kwargs:
-            kwargs['display_value'] = self.display_value
-        if len(query) > 0:
-            if "query" in kwargs:
-                raise Exception("can not pass filters and sysparm_query")
-            kwargs['query'] = "^".join(query)
-        for row in self.snow.get(self.table, **kwargs):
-            yield self.TableRow(self, row)
+                record += 1
+                yield TableRow(self, row)
+            if len(results) < kwargs['limit']:
+                raise StopIteration
+            kwargs['offset'] += kwargs['limit']
+            kwargs['limit'] = int(max(1, kwargs['limit'] * 0.8 / time_elapsed))
 
-    class TableRow(object):
-        def __init__(self, parent, data):
-            self.__dict__ = dict(**data)
-            self.snow = parent.snow
-            self.table = parent.table
-            self.__data = data
 
-        def __repr__(self):
+class TableRow(dict):
+    def __init__(self, parent, data):
+        obj = dict()
+        for key in data:
+            if isinstance(data[key], dict):
+                obj[key] = TableRowField(**data[key])
+            else:
+                obj[key] = TableRowField(value=data[key])
+        super(TableRow, self).__init__(obj)
+        self.__dict__ = obj
+        self._parent = parent
+
+    def __eq__(self, data):
+        for k in self:
+            if k.startswith("sys_"):
+                continue
+            if k not in data:
+                return False
+            if self[k] != data[k]:
+                return False
+        for k in data:
+            if k.startswith("sys_"):
+                continue
+            if k not in self:
+                return False
+        return True
+
+    def __setitem__(self, name, value):
+        if self[name] == self[name].value:
+            self[name].value = value
+        else:
+            self[name].display_value = value
+        if self._parent is not None:
+            self._parent.snow.put(
+                "{0}/{sys_id}".format(self._parent.table, **self),
+                {name: value})
+
+
+class TableRowField(text_type):
+    def __new__(cls, link=None, display_value=None, value=None):
+        if link is None or len(link) == 0 or \
+                display_value is None or len(display_value) == 0:
             try:
-                sysid = self.__data['sys_id']
-            except KeyError:
-                sysid = None
-            return 'TableRow(ID: %s, Table: %s)' % (sysid, self.table)
+                obj = text_type.__new__(cls, value)
+            except UnicodeError:
+                obj = text_type.__new__(cls, value.encode('utf-8'))
+        else:
+            try: 
+                obj = text_type.__new__(cls, display_value)
+            except UnicodeError:
+                obj = text_type.__new__(cls, display_value.encode('utf-8'))
+        obj.link = link
+        obj.value = value
+        obj.display_value = display_value
+        if text_type != str:
+            obj.__unicode__ = cls.__str__
+            obj.__str__ = lambda self: self.__unicode__().encode('utf-8')
+        return obj
 
-        def __eq__(self, data):
-            for k in self.__data:
-                if k.startswith("sys_"):
-                    continue
-                if k not in data:
-                    return False
-                if self.__data[k] != data[k]:
-                    return False
-            for k in data:
-                if k not in self.__data:
-                    return False
-                if self.__data[k] != data[k]:
-                    return False
+    def __ne__(self, data):
+        return not self.__eq__(data)
+
+    def __eq__(self, data):
+        if not isinstance(data, TableRowField):
+            if self.link is None or len(self.link) == 0:
+                return self.value == data
+            else:
+                return self.display_value == data
+        elif self.value == data.value and \
+                self.display_value == data.display_value:
             return True
-
-        def __str__(self):
-            results = {}
-            for k in self.__data:
-                results[k] = self[k]
-            return str(results)
-
-        def __len__(self):
-            if self.__data:
-                return len(self.__data)
-            return 0
-
-        def __iter__(self):
-            for k in self.__data:
-                yield k
-
-        def __contains__(self, key):
-            if key in self.__data:
-                return True
-            return False
-
-        def __getitem__(self, name):
-            if name not in self.__data:
-                raise KeyError(name)
-            if not isinstance(self.__data[name], dict):
-                return self.__data[name]
-            elif "display_value" in self.__data[name]:
-                return self.__data[name]["display_value"]
-            elif name == "sys_domain":
-                return self.__data[name]["value"]
-            elif "link" not in self.__data[name]:
-                return None
-            return self.snow.sysid_to_value(
-                self.__data[name]["link"].split('/')[-2],
-                self.__data[name]["link"].split('/')[-1])
-
-        def __setitem__(self, name, value):
-            params = {}
-            self.__data[name] = value
-            for k in self:
-                params[k] = self[k]
-            self.snow.put("%s/%s" % (self.table, self.__data['sys_id']),
-                          params)
+        return False
 
 
 API = ServiceNow

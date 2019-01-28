@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 from setuptools import setup
+import servicenow.release
 
 setup(
     name="python-servicenow",
-    version="0.1.2",
+    version=servicenow.release.__version__,
     description="ServiceNow module for Python",
     author="Jean-Baptiste LANGLOIS",
     author_email="jeanbaptiste.langlois@gmail.com",
